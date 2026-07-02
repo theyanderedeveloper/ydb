@@ -1,0 +1,27 @@
+{
+  "name": "yandere-database-desktop",
+  "version": "1.0.0",
+  "description": "Lightweight database for hosting videos, files, images, and other media.",
+  "homepage": "https://github.com/theyanderedev/yandere-database#readme",
+  "bugs": {
+    "url": "https://github.com/theyanderedev/yandere-database/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theyanderedev/yandere-database.git"
+  },
+  "scripts": {
+    "test": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^4.22.1",
+    "express-rate-limit": "^8.5.1",
+    "fluent-ffmpeg": "^2.1.3",
+    "helmet": "^8.1.0",
+    "morgan": "^1.11.0"
+  }
+}

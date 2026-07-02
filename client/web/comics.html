@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Comic preview</title>
+    <link rel="stylesheet" href="/styles/base.css" />
+    <link rel="stylesheet" href="/styles/comics.css" />
+    <link rel="stylesheet" href="/styles/comics.css" />
+
+</head>
+
+<body>
+    <div id="comicReaderMain">
+        <div id="comicHeader">
+            <a id="comicBack">↩</a>
+            <div id="comicPath"></div>
+            <div id="comicFullName"></div>
+            <div id="comicDescription"></div>
+        </div>
+        <div id="comicContent">
+        </div>
+        <div id="comicFooter">
+            <div id="comicPagesSelector">
+            </div>
+
+            <div id="comicControls">
+                <div id="comicPrev" class="comicBtn">⮜</div>
+                <div id="comicNext" class="comicBtn">⮞</div>
+                <div class="fullScreen" data-target="#comicReaderMain">⛶</div>
+            </div>
+        </div>
+    </div>
+</body>
+<script src="/scripts/lib/jszip.js"></script>
+<script src="/scripts/general.js"></script>
+<script src="/scripts/comicsreader.js"></script>
+
+</html>

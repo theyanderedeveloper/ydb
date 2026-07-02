@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Yandere's File Database</title>
+    <link rel="stylesheet" href="/styles/base.css" />
+    <link rel="stylesheet" href="/styles/frames.css" />
+    <link rel="stylesheet" href="/styles/previews.css" />
+    <link rel="stylesheet" href="/styles/filesSearchSidebar.css" />
+</head>
+
+<body>
+    <div id="sidebar">
+        <ul id="otherPages">
+            <li><a href="/search/comics.html">Comics</a></li>
+            <li><a href="/search/files.html">Files</a></li>
+            <li><a href="/index.html">Main page</a></li>
+        </ul>
+        <div id="breadcrumb"></div>
+        <input type="text" id="file-search" placeholder="Filter comics..." autocomplete="off" />
+
+        <div id="sort-bar">
+            <span class="sort-label">Sort by:</span>
+            <div id="sort-container"></div>
+        </div>
+
+        <div id="file-list"></div>
+    </div>
+
+    <div id="resizer" class="resizer"></div>
+
+    <div id="preview">
+        <div id="content">Select a file from the sidebar.</div>
+    </div>
+</body>
+
+<script src="/scripts/lib/marked.js"></script>
+<script src="/scripts/lib/hls.js"></script>
+<script src="/scripts/general.js"></script>
+<script src="/scripts/files.js"></script>
+</html>

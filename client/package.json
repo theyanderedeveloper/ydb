@@ -1,0 +1,44 @@
+{
+  "name": "yandere-database-desktop",
+  "version": "1.0.0",
+  "description": "Lightweight GUI enviroment to open Yandere's Database without any problems.",
+  "homepage": "https://github.com/theyanderedev/yandere-database#readme",
+  "bugs": {
+    "url": "https://github.com/theyanderedev/yandere-database/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theyanderedev/yandere-database.git"
+  },
+  "license": "MIT",
+  "author": "TheYandereDev",
+  "type": "commonjs",
+  "scripts": {
+    "test": "electron .",
+    "build-linux": "electron-builder --linux",
+    "build-win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.theyanderedev.ydb",
+    "productName": "Yandere Database",
+    "files": [
+      "package.json",
+      "index.js",
+      "web/**/*"
+    ],
+    "win": {
+      "target": "msi",
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icons"
+    }
+  }
+}
