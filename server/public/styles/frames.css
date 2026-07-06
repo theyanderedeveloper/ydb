@@ -3,13 +3,11 @@
    ========================================================================== */
 .frame {
     background: #2c2c44;
-    border: 1px solid #3d3d55;
-    border-radius: 20px;
     padding: 30px;
-    width: 50%;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
     overflow: hidden auto;
     animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    height: auto;
+    width: 100%
 }
 
 .frameHeader {

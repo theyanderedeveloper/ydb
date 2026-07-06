@@ -7,11 +7,84 @@ const ffmpeg = require("fluent-ffmpeg");
 const morgan = require("morgan");
 const zlib = require('zlib');
 const { pipeline } = require('stream');
+const winston = require('winston');
+require('winston-daily-rotate-file');
 
 const app = express();
 const PORT = 8647;
 
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.combine(
+        winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+        winston.format.json() // Perfect for machine parsing
+    ),
+    transports: [
+        new winston.transports.Console({
+            format: winston.format.combine(
+                winston.format.colorize(),
+                winston.format.printf(({ timestamp, level, message, ...meta }) => {
+                    return `${timestamp} [${level}]: ${message} ${Object.keys(meta).length ? JSON.stringify(meta) : ''}`;
+                })
+            )
+        }),
+        new winston.transports.DailyRotateFile({
+            filename: 'logs/application-%DATE%.log',
+            datePattern: 'YYYY-MM-DD',
+            maxFiles: '14d'
+        })
+    ]
+});
+
+// 2. Middleware to track requests cleanly
+app.use((req, res, next) => {
+    const start = Date.now();
+    const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        logger.info(`${req.method} ${req.originalUrl}`, {
+            status: res.statusCode,
+            duration: `${duration}ms`,
+            ip: ip.replace(/^::ffff:/, '')
+        });
+    });
+    next();
+});
+
+
 app.use(morgan("dev"));
+
+// Custom request logger with IP
+app.use((req, res, next) => {
+    const start = Date.now();
+
+    // Get client IP address
+    const ip = req.ip || req.connection.remoteAddress ||
+        req.socket.remoteAddress || req.headers['x-forwarded-for'] ||
+        'unknown';
+
+    // Clean up IPv6 localhost format if needed
+    const cleanIp = ip.replace(/^::ffff:/, '');
+
+    // Store the original end function
+    const originalEnd = res.end;
+
+    // Override end to log when response is complete
+    res.end = function (...args) {
+        const duration = Date.now() - start;
+        const statusCode = res.statusCode;
+        const logMessage = `${getDate()} ${req.method} ${req.url} - ${statusCode} - ${duration}ms - IP: ${cleanIp}`;
+
+        // Log to console and file
+        console.log(logMessage);
+
+        // Call original end
+        originalEnd.apply(this, args);
+    };
+
+    next();
+});
 
 const BASE_HTML = path.resolve(__dirname, "public");
 const BASE_FILES = path.resolve(__dirname, "files");
@@ -282,7 +355,7 @@ app.get("/api/preview", async (req, res, next) => {
         const srcFilePath = getSafePath(relativeFilePath, targetBase);
 
         const parsed = path.parse(relativeFilePath);
-        
+
         const previewFolder = path.join(BASE_PREVIEWS, parsed.dir, parsed.base);
         const playlistPath = path.join(previewFolder, resolution, "preview.m3u8");
 

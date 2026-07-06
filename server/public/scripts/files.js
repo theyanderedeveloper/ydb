@@ -1,5 +1,3 @@
-
-
 const CONFIG = {
     apiBase: "/api",
     iconMap: {
@@ -386,27 +384,42 @@ function renderSortButtons() {
 }
 
 async function fetchFiles(path = "", push = true) {
-    try {
-        let cleanPath = path;
-        if (cleanPath.startsWith("search/files")) {
-            cleanPath = cleanPath.replace(/^search\/files\/?/, "");
-        } else if (cleanPath.startsWith("/search/files")) {
-            cleanPath = cleanPath.replace(/^\/search\/files\/?/, "");
-        }
+    let cleanPath = path;
+    if (cleanPath.startsWith("search/files")) {
+        cleanPath = cleanPath.replace(/^search\/files\/?/, "");
+    } else if (cleanPath.startsWith("/search/files")) {
+        cleanPath = cleanPath.replace(/^\/search\/files\/?/, "");
+    }
 
+    const storageKey = `cache_file_path_${cleanPath || "root"}`;
+    const cachedData = localStorage.getItem(storageKey);
+    
+    if (cachedData) {
+        FileManConfig.cachedItems = JSON.parse(cachedData);
+        renderList(FileManConfig.cachedItems, cleanPath, push);
+    }
+
+    try {
         const url = `${CONFIG.apiBase}/list?path=${encodeURIComponent(cleanPath)}`;
         const response = await fetch(url);
 
         if (!response.ok) {
-            handleErrorResponse(response.status, "Directory Access");
+            if (!cachedData) handleErrorResponse(response.status, "Directory Access");
             return;
         }
 
-        FileManConfig.cachedItems = await response.json();
+        const data = await response.json();
+        
+        FileManConfig.cachedItems = data;
         renderList(FileManConfig.cachedItems, cleanPath, push);
+        
+        localStorage.setItem(storageKey, JSON.stringify(data));
+        
     } catch (err) {
-        console.error("File Fetch Error:", err);
-        renderError("500", "Connection lost", "Unable to reach the server.");
+        if (!cachedData) {
+            console.error("File Fetch Error:", err);
+            renderError("500", "Connection lost", "Unable to reach the server.");
+        }
     }
 }
 

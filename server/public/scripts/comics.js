@@ -14,34 +14,48 @@ const getIcon = (item) => {
 };
 
 async function fetchComics(path = "", push = true) {
+    let cleanPath = path;
+    if (cleanPath.startsWith("search/comics")) {
+        cleanPath = cleanPath.replace(/^search\/comics\/?/, "");
+    } else if (cleanPath.startsWith("/search/comics")) {
+        cleanPath = cleanPath.replace(/^\/search\/comics\/?/, "");
+    }
+
+    const storageKey = `cache_comic_path_${cleanPath || "root"}`;
+    const cachedData = localStorage.getItem(storageKey);
+
+    if (cachedData) {
+        ComicManConfig.cachedItems = JSON.parse(cachedData);
+        renderList(ComicManConfig.cachedItems, cleanPath, push, false);
+    }
+
     try {
-        let cleanPath = path;
-        if (cleanPath.startsWith("search/comics")) {
-            cleanPath = cleanPath.replace(/^search\/comics\/?/, "");
-        } else if (cleanPath.startsWith("/search/comics")) {
-            cleanPath = cleanPath.replace(/^\/search\/comics\/?/, "");
-        }
-
         const url = `${CONFIG.apiBase}/list?path=${encodeURIComponent(cleanPath)}&type=comic`;
-
         const response = await fetch(url);
 
         if (response.status === 404) {
             ComicManConfig.cachedItems = [];
+            localStorage.setItem(storageKey, JSON.stringify([]));
             renderList([], cleanPath, push, true);
             return;
         }
 
         if (!response.ok) {
-            handleErrorResponse(response.status, "Directory Access");
+            if (!cachedData) handleErrorResponse(response.status, "Directory Access");
             return;
         }
 
-        ComicManConfig.cachedItems = await response.json();
+        const data = await response.json();
+        ComicManConfig.cachedItems = data;
         renderList(ComicManConfig.cachedItems, cleanPath, push, false);
+        
+        localStorage.setItem(storageKey, JSON.stringify(data));
+
     } catch (err) {
-        console.error("Comic Fetch Error:", err);
-        renderError("500", "CONNECTION LOST", "Unable to reach the server.");
+        if (!cachedData) {
+            console.error("Comic Fetch Error:", err);
+            renderError("500", "CONNECTION LOST", "Unable to reach the server.");
+        }
     }
 }
 
