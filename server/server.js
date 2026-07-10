@@ -4,87 +4,60 @@ const fsPromises = require("fs/promises");
 const path = require("path");
 const rateLimit = require("express-rate-limit");
 const ffmpeg = require("fluent-ffmpeg");
-const morgan = require("morgan");
 const zlib = require('zlib');
 const { pipeline } = require('stream');
-const winston = require('winston');
-require('winston-daily-rotate-file');
+const { promisify } = require('util');
+const ffprobe = promisify(ffmpeg.ffprobe);
+const helmet = require('helmet');
+const pLimit = require('p-limit');
+const limit = pLimit(2);
+
 
 const app = express();
 const PORT = 8647;
 
-const logger = winston.createLogger({
-    level: 'info',
-    format: winston.format.combine(
-        winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-        winston.format.json() // Perfect for machine parsing
-    ),
-    transports: [
-        new winston.transports.Console({
-            format: winston.format.combine(
-                winston.format.colorize(),
-                winston.format.printf(({ timestamp, level, message, ...meta }) => {
-                    return `${timestamp} [${level}]: ${message} ${Object.keys(meta).length ? JSON.stringify(meta) : ''}`;
-                })
-            )
-        }),
-        new winston.transports.DailyRotateFile({
-            filename: 'logs/application-%DATE%.log',
-            datePattern: 'YYYY-MM-DD',
-            maxFiles: '14d'
-        })
-    ]
-});
+app.disable('x-powered-by');
 
-// 2. Middleware to track requests cleanly
-app.use((req, res, next) => {
+const requestLogger = (req, res, next) => {
     const start = Date.now();
-    const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        logger.info(`${req.method} ${req.originalUrl}`, {
-            status: res.statusCode,
-            duration: `${duration}ms`,
-            ip: ip.replace(/^::ffff:/, '')
-        });
-    });
-    next();
-});
-
-
-app.use(morgan("dev"));
-
-// Custom request logger with IP
-app.use((req, res, next) => {
-    const start = Date.now();
-
-    // Get client IP address
-    const ip = req.ip || req.connection.remoteAddress ||
-        req.socket.remoteAddress || req.headers['x-forwarded-for'] ||
-        'unknown';
-
-    // Clean up IPv6 localhost format if needed
-    const cleanIp = ip.replace(/^::ffff:/, '');
-
-    // Store the original end function
     const originalEnd = res.end;
 
-    // Override end to log when response is complete
     res.end = function (...args) {
         const duration = Date.now() - start;
         const statusCode = res.statusCode;
-        const logMessage = `${getDate()} ${req.method} ${req.url} - ${statusCode} - ${duration}ms - IP: ${cleanIp}`;
+        const ip = (req.ip || req.connection.remoteAddress || '').replace(/^::ffff:/, '');
 
-        // Log to console and file
+        const logMessage = `${getDate()} ${req.method} ${req.url} - ${statusCode} - ${duration}ms - IP: ${ip}`;
         console.log(logMessage);
 
-        // Call original end
         originalEnd.apply(this, args);
     };
-
     next();
-});
+};
+
+
+async function isSafeToProcess(filePath) {
+    try {
+        const metadata = await ffprobe(filePath);
+        return metadata.streams.some(s => s.codec_type === 'video');
+    } catch (e) {
+        console.error(`${getDate()} FFprobe failed for ${filePath}: ${e.message}`);
+        return false;
+    }
+}
+
+app.use(
+    helmet({
+        contentSecurityPolicy: {
+            directives: {
+                "script-src": ["'self'", "'unsafe-inline'"],
+                "script-src-attr": ["'unsafe-inline'"],
+            },
+            crossOriginResourcePolicy: false,
+            frameguard: false,
+        },
+    })
+); app.use(requestLogger);
 
 const BASE_HTML = path.resolve(__dirname, "public");
 const BASE_FILES = path.resolve(__dirname, "files");
@@ -97,18 +70,17 @@ if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
 
 function rotateLog() {
     if (fs.existsSync(LATEST_LOG)) {
-        const stats = fs.statSync(LATEST_LOG);
-        const dateString = new Date(stats.birthtime).toISOString().replace(/[:.]/g, '-');
-        const archiveName = path.join(LOG_DIR, `${dateString}.log.gz`);
+        fs.promises.stat(LATEST_LOG).then(stats => {
+            const dateString = new Date(stats.birthtime).toISOString().replace(/[:.]/g, '-');
+            const archiveName = path.join(LOG_DIR, `${dateString}.log.gz`);
+            const gzip = zlib.createGzip();
+            const source = fs.createReadStream(LATEST_LOG);
+            const destination = fs.createWriteStream(archiveName);
 
-        const gzip = zlib.createGzip();
-        const source = fs.createReadStream(LATEST_LOG);
-        const destination = fs.createWriteStream(archiveName);
-
-        pipeline(source, gzip, destination, (err) => {
-            if (err) console.error('Log rotation failed:', err);
-            else fs.unlinkSync(LATEST_LOG);
-        });
+            pipeline(source, gzip, destination, (err) => {
+                if (!err) fs.unlinkSync(LATEST_LOG);
+            });
+        }).catch(console.error);
     }
 }
 
@@ -123,59 +95,9 @@ const combinedLog = (data, ...args) => {
     originalStdoutWrite.apply(process.stdout, [data, ...args]);
 };
 
-// 3. Apply the override
 process.stdout.write = process.stderr.write = combinedLog;
 app.set("trust proxy", 1);
 
-let searchIndex = {
-    files: [],
-    comics: []
-};
-
-async function buildIndexForFolder(dirPath, baseDir, indexKey, rootName) {
-    try {
-        const files = await fsPromises.readdir(dirPath, { withFileTypes: true });
-
-        for (const file of files) {
-            if (file.name.startsWith(".") || file.name.startsWith("--") || file.name === "previews") {
-                continue;
-            }
-
-            const fullPath = path.join(dirPath, file.name);
-            const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, "/");
-            const isDir = file.isDirectory();
-
-            let fileStats = { birthtime: null, mtime: null, size: 0 };
-            try {
-                fileStats = await fs.stat(fullPath);
-            } catch (e) {
-            }
-
-            searchIndex[indexKey].push({
-                name: file.name,
-                type: isDir ? "dir" : "file",
-                path: relativePath,
-                fullPath: fullPath.replace(/\\/g, "/"),
-                searchBase: rootName,
-                createdAt: fileStats.birthtime ? fileStats.birthtime.getTime() : null,
-                updatedAt: fileStats.mtime ? fileStats.mtime.getTime() : null,
-                size: isDir ? 0 : fileStats.size,
-            });
-
-            if (isDir) {
-                await buildIndexForFolder(fullPath, baseDir, indexKey, rootName);
-            }
-        }
-    } catch (err) {
-    }
-}
-
-async function refreshSearchIndex() {
-    searchIndex = { files: [], comics: [] };
-
-    await buildIndexForFolder(BASE_FILES, BASE_FILES, "files", "files");
-    await buildIndexForFolder(BASE_COMICS, BASE_COMICS, "comics", "comics");
-}
 
 
 const createLimiter = (ms, maxLimit) => rateLimit({
@@ -190,30 +112,16 @@ const limiter = createLimiter(1000, 6);
 app.use("/api/*", limiter);
 
 const getSafePath = (userPath, baseDir) => {
-    if (!userPath) return baseDir;
+    const safeBase = path.resolve(baseDir);
+    const resolvedPath = path.resolve(safeBase, decodeURIComponent(userPath));
 
-    let decodedPath;
-    try {
-        decodedPath = decodeURIComponent(userPath);
-    } catch {
-        const error = new Error("Invalid path encoding");
-        error.status = 400;
-        throw error;
+    if (!resolvedPath.startsWith(safeBase)) {
+        throw new Error("Forbidden: Access Denied");
     }
 
-    const sanitized = decodedPath.replace(/\0/g, "");
-    const resolved = path.resolve(baseDir, sanitized);
-    const relative = path.relative(baseDir, resolved);
-
-    const isSafe = relative === "" || (relative && !relative.startsWith("..") && !path.isAbsolute(relative));
-    if (!isSafe) {
-        const error = new Error("Forbidden: Access Denied");
-        error.status = 403;
-        throw error;
-    }
-
-    return resolved;
+    return resolvedPath;
 };
+
 
 const getTargetBase = (type) => {
     if (type === "comic") return BASE_COMICS;
@@ -234,14 +142,23 @@ async function processAllPreviews() {
                 const ext = path.extname(entry.name).toLowerCase();
 
                 if (VIDEO_EXTENSIONS.has(ext)) {
+
                     const relativePath = path.relative(BASE_FILES, path.join(dir, entry.name));
+
+                    const fullFilePath = path.join(dir, entry.name);
+                    const safe = await isSafeToProcess(fullFilePath);
+                    if (!safe) {
+                        console.log(`${getDate()} Skipping unsupported/corrupt video: ${entry.name}`);
+                        continue;
+                    }
+
                     const parsed = path.parse(relativePath);
 
                     const previewDirPath = path.join(BASE_PREVIEWS, parsed.dir, parsed.base);
 
                     if (!fs.existsSync(previewDirPath)) {
                         console.log(`${getDate()} Generating previews for: ${relativePath}`);
-                        await fs.mkdir(previewDirPath, { recursive: true });
+                        await fsPromises.mkdir(previewDirPath, { recursive: true });
                         await generateVideoPreview(path.join(dir, entry.name), previewDirPath);
                     }
                 }
@@ -258,56 +175,61 @@ async function processAllPreviews() {
 }
 
 async function generateVideoPreview(filePath, outputFolder) {
-    try {
-        const RESOLUTIONS = [
-            { name: 'raw', height: 'source', bitrate: '0' },
-            { name: '144p', height: 144, bitrate: '400k' },
-            { name: '240p', height: 240, bitrate: '800k' },
-            { name: '360p', height: 360, bitrate: '1400k' },
-            { name: '480p', height: 480, bitrate: '2500k' },
-            { name: '720p', height: 720, bitrate: '5000k' },
-            { name: '1080p', height: 1080, bitrate: '8000k' }
-        ];
+    await limit(async () => {
+        try {
+            const RESOLUTIONS = [
+                { name: 'raw', height: 'source', bitrate: '0' },
+                { name: '144p', height: 144, bitrate: '400k' },
+                { name: '240p', height: 240, bitrate: '800k' },
+                { name: '360p', height: 360, bitrate: '1400k' },
+                { name: '480p', height: 480, bitrate: '2500k' },
+                { name: '540p', height: 540, bitrate: '4000k' },
+                { name: '720p', height: 720, bitrate: '5000k' },
+                { name: '900p', height: 900, bitrate: '6500k' },
+                { name: '1080p', height: 1080, bitrate: '8000k' },
+                { name: '1200p', height: 1200, bitrate: '10000k' },
+                { name: '1440p', height: 1440, bitrate: '16000k' },
+                { name: '2160p', height: 2160, bitrate: '40000k' },
+            ];
+            for (const res of RESOLUTIONS) {
+                const resFolder = path.join(outputFolder, res.name);
+                await fsPromises.mkdir(resFolder, { recursive: true });
 
-        for (const res of RESOLUTIONS) {
-            const resFolder = path.join(outputFolder, res.name);
-            await fsPromises.mkdir(resFolder, { recursive: true });
+                const isRaw = res.name === 'raw';
 
-            const isRaw = res.name === 'raw';
+                await new Promise((resolve, reject) => {
+                    let cmd = ffmpeg(filePath);
 
-            await new Promise((resolve, reject) => {
-                let cmd = ffmpeg(filePath);
+                    if (isRaw) {
+                        cmd.outputOptions(['-c', 'copy', '-hls_time', '2', '-hls_list_size', '0', '-f', 'hls']);
+                    } else {
+                        cmd.outputOptions([
+                            '-vf', `scale=-2:${res.height}`,
+                            '-c:v', 'libx264', '-b:v', res.bitrate,
+                            '-profile:v', 'baseline', '-level', '3.0',
+                            '-hls_time', '2', '-hls_list_size', '0', '-f', 'hls'
+                        ]);
+                    }
 
-                if (isRaw) {
-                    // Copy stream without transcoding
-                    cmd.outputOptions(['-c', 'copy', '-hls_time', '10', '-hls_list_size', '0', '-f', 'hls']);
-                } else {
-                    cmd.outputOptions([
-                        '-vf', `scale=-2:${res.height}`,
-                        '-c:v', 'libx264', '-b:v', res.bitrate,
-                        '-profile:v', 'baseline', '-level', '3.0',
-                        '-hls_time', '10', '-hls_list_size', '0', '-f', 'hls'
-                    ]);
-                }
+                    cmd.output(path.join(resFolder, 'preview.m3u8'))
+                        .on('end', resolve)
+                        .on('error', reject)
+                        .run();
+                });
+            }
+            const masterContent = [
+                "#EXTM3U",
+                ...RESOLUTIONS.map(res =>
+                    `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(res.bitrate) * 1000},RESOLUTION=x${res.height}\n${res.name}/preview.m3u8`
+                )
+            ].join('\n');
 
-                cmd.output(path.join(resFolder, 'preview.m3u8'))
-                    .on('end', resolve)
-                    .on('error', reject)
-                    .run();
-            });
+            await fsPromises.writeFile(path.join(outputFolder, 'master.m3u8'), masterContent);
         }
-        const masterContent = [
-            "#EXTM3U",
-            ...RESOLUTIONS.map(res =>
-                `#EXT-X-STREAM-INF:BANDWIDTH=${parseInt(res.bitrate) * 1000},RESOLUTION=x${res.height}\n${res.name}/preview.m3u8`
-            )
-        ].join('\n');
-
-        await fsPromises.writeFile(path.join(outputFolder, 'master.m3u8'), masterContent);
-    }
-    catch (err) {
-        console.log(err)
-    }
+        catch (err) {
+            console.log(err)
+        }
+    })
 }
 
 app.get("/api/list", async (req, res, next) => {
@@ -323,7 +245,11 @@ app.get("/api/list", async (req, res, next) => {
                 .filter(file => !file.name.startsWith(".") && !file.name.startsWith("--") && file.name !== "previews")
                 .map(async (file) => {
                     const fullPath = path.join(dirPath, file.name);
-                    const fileStats = await fsPromises.stat(fullPath).catch(() => ({ birthtime: null, mtime: null, size: 0 }));
+                    const fileStats = await fsPromises.stat(fullPath).catch(() => ({
+                        birthtime: null,
+                        mtime: null,
+                        size: 0
+                    }));
                     const isDir = file.isDirectory();
 
                     return {
@@ -413,35 +339,10 @@ app.get("/search/:category*", (req, res, next) => {
     next();
 });
 
-app.get("/api/search", async (req, res, next) => {
-    try {
-        const { type, query } = req.query;
-        const indexKey = (type === "comics" || type === "comic") ? "comics" : "files";
 
-        if (!query || query.trim() === "") {
-            return res.json([]);
-        }
-
-        const cleanQuery = query.toLowerCase().trim();
-
-        if (searchIndex[indexKey].length === 0) {
-            await refreshSearchIndex();
-        }
-
-        const results = searchIndex[indexKey].filter(item =>
-            item.name.toLowerCase().includes(cleanQuery) ||
-            item.path.toLowerCase().includes(cleanQuery) ||
-            item.fullPath.toLowerCase().includes(cleanQuery)
-        );
-
-        res.json(results.slice(0, 100));
-    } catch (err) {
-        next(err);
-    }
-});
 
 app.use(express.static(BASE_HTML, {
-    extensions: ["html", "js", "css", "png", "m3u8", "ts"],
+    extensions: ["html", "js", "css", "png", "m3u8", "ts", "xml", "txt", "ico", "webp"],
     maxAge: "1d",
     immutable: true
 }));
@@ -457,11 +358,13 @@ function getDate() {
 }
 
 app.listen(PORT, "0.0.0.0", async () => {
-    console.log(`${getDate()} Server running on port ${PORT}`);
-    await fsPromises.mkdir(BASE_FILES, { recursive: true });
+    console.log(`${getDate()} Server running on port ${PORT}`); await fsPromises.mkdir(BASE_FILES, { recursive: true });
     await fsPromises.mkdir(BASE_COMICS, { recursive: true });
     await fsPromises.mkdir(BASE_PREVIEWS, { recursive: true });
 
     processAllPreviews();
-    setInterval(processAllPreviews, 20 * 60 * 1000);
+    setInterval(processAllPreviews, 2 * 60 * 60 * 1000);
 });
+
+
+

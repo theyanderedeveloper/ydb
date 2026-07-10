@@ -5,3 +5,5 @@ previews
 build
 dist
 logs
+*.pem
+.env

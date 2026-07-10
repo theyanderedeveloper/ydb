@@ -12,6 +12,7 @@
         opacity: 0;
         transform: scale(0.99);
     }
+
     to {
         opacity: 1;
         transform: scale(1);
@@ -36,35 +37,43 @@
 
 #comicHeader {
     display: flex;
+    flex-direction: column;
     justify-content: flex-start;
     align-items: center;
     gap: 16px;
     text-align: left;
-    max-width: 100%; 
+    max-width: 100%;
     width: 100%;
     padding: 16px;
-    box-sizing: border-box; 
+    box-sizing: border-box;
     background: #222233;
     backdrop-filter: blur(8px);
+    height: auto;
+
 }
 
-#comicPath, #comicFullName {
-    min-width: 0; 
+#comicPath,
+#comicFullName {
+    min-width: 0;
 }
 
 #comicFullName {
-    border-left: 2px solid #fafafa;
-    border-right: 2px solid #fafafa;
     padding-left: 16px;
     padding-right: 16px;
     font-size: 20px;
-    flex-shrink: 1;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    width: 100%;
+    border-bottom: 2px solid #fafafa;
+    border-top: 2px solid #fafafa;
+
 }
 
 #comicDescription {
     font-size: 16px;
-    min-width: 0; 
-    flex-shrink: 1;
+    min-width: 0;
+    word-wrap: break-word;
+
 }
 
 
@@ -131,9 +140,9 @@
     cursor: pointer;
     font-size: 14px;
     transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-                background-color 0.2s ease,
-                color 0.2s ease,
-                box-shadow 0.2s ease;
+        background-color 0.2s ease,
+        color 0.2s ease,
+        box-shadow 0.2s ease;
 }
 
 .fullScreen {

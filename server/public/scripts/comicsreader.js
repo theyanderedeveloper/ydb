@@ -5,10 +5,6 @@ const comicFullName = queryParams.get("path");
 let currentPageIndex = parseInt(queryParams.get("page"), 10) || 0;
 let comicData
 
-document.querySelector("#comicBack").addEventListener("click", () => {
-    history.back();
-});
-
 const loadedPageElements = [];
 const switcherElements = [];
 
@@ -31,7 +27,7 @@ const switcherElements = [];
             });
 
 
-            document.querySelector("#comicPath").textContent = decodedPath;
+            document.querySelector("#comicPath").innerHTML = `<a id="comicBack">↩ ${decodedPath}</a>`;
 
             const comicFile = await getComicFile(comicFullName);
 
@@ -162,6 +158,8 @@ async function loadComicImages(zipBlob) {
 
         if (comicData.fullname) {
             document.getElementById("comicFullName").textContent = comicData.fullname;
+            document.querySelector("title").textContent = `Reading ${comicData.fullname} | Yandere's Database`;
+            
         }
 
 
@@ -244,4 +242,11 @@ window.addEventListener("keydown", (e) => {
     } else if (e.key === "ArrowRight" && currentPageIndex < loadedPageElements.length - 1) {
         switchPage(currentPageIndex + 1);
     }
+});
+
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelector("#comicBack").addEventListener("click", () => {
+        history.back();
+    });
 });

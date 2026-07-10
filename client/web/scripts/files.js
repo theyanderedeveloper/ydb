@@ -582,8 +582,6 @@ async function showPreview(filePath) {
             renderMediaPreview(html, filePath);
         } else if (isVideo || isAudio) {
             try {
-                // --- VIDEO HLS LAZY-LOADING ROUTINE ---
-                // --- VIDEO HLS LAZY-LOADING ROUTINE ---
                 if (isVideo) {
                     const previewUrl = `${CONFIG.apiBase}/preview?path=${encodeURIComponent(filePath)}`;
 
@@ -594,7 +592,6 @@ async function showPreview(filePath) {
 
                     if (Hls.isSupported()) {
                         const hls = new Hls({
-                            // Limits how aggressive the player behaves before clicking play
                             maxBufferLength: 2, 
                             maxMaxBufferLength: 5
                         });
@@ -602,9 +599,8 @@ async function showPreview(filePath) {
                         hls.loadSource(previewUrl);
                         hls.attachMedia(video);
 
-                        // Safe layout render without programmatic playing errors
                         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                            video.currentTime = 0.1; // Seeks slightly into the stream to force draw frame 1 safely
+                            video.currentTime = 0.1;
                         });
 
                         const oldClose = window.closePreview;
@@ -619,8 +615,6 @@ async function showPreview(filePath) {
                     return; 
                 }
 
-                // --- AUDIO FALLBACK BLOB ROUTINE ---
-                // Audio stays with the blob sequence since audio files are typically very lightweight
                 const res = await fetch(downloadUrl);
                 if (!res.ok) {
                     handleErrorResponse(res.status, filePath);
@@ -717,7 +711,7 @@ function renderMediaPreview(mediaHtml, filePath) {
             <h2 style="margin-bottom: 20px; font-size: 1.5rem;">${escapeHTML(filename)}</h2>
             ${mediaHtml}
             <div style="margin-top: 30px;">
-                <a href="${CONFIG.apiBase}/download?path=${encodeURIComponent(filePath)}" 
+                <a href="${CONFIG.apiBase}/download?path=${encodeURIComponent(filePath)}"
                    download="${filename}" class="button">DOWNLOAD_FILE</a>
             </div>
         </div>

@@ -383,7 +383,7 @@ function renderSortButtons() {
     }).join("");
 }
 
-async function fetchFiles(path = "", push = true) {
+async function fetchFiles(path = "") {
     let cleanPath = path;
     if (cleanPath.startsWith("search/files")) {
         cleanPath = cleanPath.replace(/^search\/files\/?/, "");
@@ -393,10 +393,10 @@ async function fetchFiles(path = "", push = true) {
 
     const storageKey = `cache_file_path_${cleanPath || "root"}`;
     const cachedData = localStorage.getItem(storageKey);
-    
+
     if (cachedData) {
         FileManConfig.cachedItems = JSON.parse(cachedData);
-        renderList(FileManConfig.cachedItems, cleanPath, push);
+        renderList(FileManConfig.cachedItems, cleanPath);
     }
 
     try {
@@ -407,14 +407,17 @@ async function fetchFiles(path = "", push = true) {
             if (!cachedData) handleErrorResponse(response.status, "Directory Access");
             return;
         }
+        const newUrl = path ? `/search/files/${path}` : "/search/files";
+        window.history.pushState({ path: path }, "", newUrl);
+
 
         const data = await response.json();
-        
+
         FileManConfig.cachedItems = data;
-        renderList(FileManConfig.cachedItems, cleanPath, push);
-        
+        renderList(FileManConfig.cachedItems, cleanPath);
+
         localStorage.setItem(storageKey, JSON.stringify(data));
-        
+
     } catch (err) {
         if (!cachedData) {
             console.error("File Fetch Error:", err);
@@ -428,28 +431,26 @@ function renderList(items, path, push = true) {
     const fileList = el("file-list");
     const searchTerm = el("file-search").value.toLowerCase();
 
-    fileList.innerHTML = "";
-    const fragment = document.createDocumentFragment();
-
-    const urlParts = path.split("/").filter(Boolean).join("/");
-    const urlPath = urlParts ? `/search/files/${urlParts}` : "/search/files";
-
-    if (push) {
-        history.pushState({ path }, "", urlPath);
-    }
     renderBreadcrumbs(path);
     renderSortButtons();
 
-    if (path) {
-        const upDiv = document.createElement("div");
-        upDiv.className = "folder";
-        upDiv.innerHTML = `Upper directory`;
-        upDiv.onclick = () => {
-            const parts = path.split("/").filter(Boolean);
-            parts.pop();
-            fetchFiles(parts.join("/"));
-        };
-        fragment.appendChild(upDiv);
+    fileList.innerHTML = "";
+    const fragment = document.createDocumentFragment();
+
+    const isSearchMode = path === "search-results";
+    if (!isSearchMode) {
+
+        if (path) {
+            const upDiv = document.createElement("div");
+            upDiv.className = "folder";
+            upDiv.innerHTML = `Upper directory`;
+            upDiv.onclick = () => {
+                const parts = path.split("/").filter(Boolean);
+                parts.pop();
+                fetchFiles(parts.join("/"));
+            };
+            fragment.appendChild(upDiv);
+        }
     }
 
     const processedItems = sortItems(items);
@@ -556,18 +557,22 @@ function injectMediaControls(filePath, videoElement, currentTime = 0) {
 
     controlsContainer.innerHTML = `
 <div class="quality-control">
-    <label for="quality-switcher">Quality:</label>
-    <select id="quality-switcher">
-        <option value="raw">Raw</option>
-        <option value="1080p">1080p</option>
-        <option value="720p" selected>720p</option>
+    <label for="quality-switcher">Select Quality:</label>
+    <select id="quality-switcher" name="quality-switcher">
+        <option value="raw">Raw (Source)</option>
+        <option value="2160p">2160p (4K UHD)</option>
+        <option value="1440p">1440p (QHD)</option>
+        <option value="1200p">1200p</option>
+        <option value="1080p">1080p (FHD)</option>
+        <option value="900p">900p</option>
+        <option value="720p" selected>720p (HD)</option>
+        <option value="540p">540p</option>
         <option value="480p">480p</option>
         <option value="360p">360p</option>
         <option value="240p">240p</option>
         <option value="144p">144p</option>
     </select>
-</div>
-    `;
+</div>    `;
 
     videoElement.parentNode.insertBefore(controlsContainer, videoElement.nextSibling);
 
@@ -782,7 +787,7 @@ function renderMediaPreview(mediaHtml, filePath) {
 }
 
 window.addEventListener("popstate", (e) => {
-    fetchFiles(e.state?.path || "", false);
+    fetchFiles(e.state?.path || "");
 });
 
 const initialPath = window.location.pathname;
@@ -792,7 +797,7 @@ if (initialPath.startsWith(routePrefix)) {
     const targetDir = initialPath.substring(routePrefix.length).replace(/^\//, "");
     fetchFiles(targetDir);
 } else {
-    fetchFiles("", false);
+    fetchFiles("");
 }
 
 async function initializeAppRouting() {
@@ -803,7 +808,7 @@ async function initializeAppRouting() {
         const targetClean = initialPath.substring(routePrefix.length).replace(/^\//, "");
 
         if (!targetClean) {
-            await fetchFiles("", false);
+            await fetchFiles("");
             return;
         }
 
@@ -811,45 +816,51 @@ async function initializeAppRouting() {
 
         if (isDirectFileLink && targetClean.includes("/")) {
             const containingFolder = targetClean.substring(0, targetClean.lastIndexOf("/"));
-            await fetchFiles(containingFolder, false);
+            await fetchFiles(containingFolder);
             showPreview(targetClean);
         } else if (isDirectFileLink) {
-            await fetchFiles("", false);
+            await fetchFiles("");
             showPreview(targetClean);
         } else {
-            await fetchFiles(targetClean, false);
+            await fetchFiles(targetClean);
         }
     } else {
-        await fetchFiles("", false);
+        await fetchFiles("");
     }
 }
 
 
-let searchDebounceTimer = null;
+function searchAllCachedItems(query) {
+    const results = [];
+    const searchLower = query.toLowerCase();
 
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.startsWith("cache_file_path_")) {
+            const items = JSON.parse(localStorage.getItem(key));
+
+            items.forEach(item => {
+                if (item.name.toLowerCase().includes(searchLower)) {
+                    results.push(item);
+                }
+            });
+        }
+    }
+    return [...new Map(results.map(item => [item.path, item])).values()];
+}
 document.addEventListener("DOMContentLoaded", () => {
     const searchInput = el("file-search");
     if (searchInput) {
         searchInput.addEventListener("input", (e) => {
             const query = e.target.value.trim();
-            clearTimeout(searchDebounceTimer);
 
             if (query === "") {
                 renderList(FileManConfig.cachedItems, FileManConfig.currentPath, false);
                 return;
             }
 
-            searchDebounceTimer = setTimeout(async () => {
-                try {
-                    const url = `${CONFIG.apiBase}/search?type=files&query=${encodeURIComponent(query)}`;
-                    const response = await fetch(url);
-                    if (!response.ok) return;
-                    const searchResults = await response.json();
-                    renderList(searchResults, FileManConfig.currentPath, false);
-                } catch (err) {
-                    console.error("Global search execution error:", err);
-                }
-            }, 250);
+            const searchResults = searchAllCachedItems(query);
+            renderList(searchResults, "search-results", false);
         });
     }
 
